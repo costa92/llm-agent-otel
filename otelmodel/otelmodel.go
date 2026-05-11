@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 
+	otelroot "github.com/costa92/llm-agent-otel"
 	"github.com/costa92/llm-agent/llm"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -51,9 +52,9 @@ func (w *wrapper) Generate(ctx context.Context, req llm.Request) (llm.Response, 
 	defer span.End()
 
 	info := w.inner.Info()
-	span.SetAttributes(
-		attribute.String(attrSystem, info.Provider),
-		attribute.String(attrRequestModel, info.Model),
+	setSemconvAttrs(span,
+		attribute.String(otelroot.AttrSystem, info.Provider),
+		attribute.String(otelroot.AttrRequestModel, info.Model),
 	)
 
 	resp, err := w.inner.Generate(ctx, req)
@@ -61,11 +62,11 @@ func (w *wrapper) Generate(ctx context.Context, req llm.Request) (llm.Response, 
 		span.RecordError(err)
 		return resp, err
 	}
-	span.SetAttributes(
-		attribute.Int(attrUsageInput, resp.Usage.InputTokens),
-		attribute.Int(attrUsageOutput, resp.Usage.OutputTokens),
-		attribute.String(attrUsageSource, string(resp.Usage.Source)),
-		attribute.String(attrFinishReason, string(resp.FinishReason)),
+	setSemconvAttrs(span,
+		attribute.Int(otelroot.AttrUsageInput, resp.Usage.InputTokens),
+		attribute.Int(otelroot.AttrUsageOutput, resp.Usage.OutputTokens),
+		attribute.String(otelroot.AttrUsageSource, string(resp.Usage.Source)),
+		attribute.String(otelroot.AttrFinishReason, string(resp.FinishReason)),
 	)
 	return resp, nil
 }
@@ -73,9 +74,9 @@ func (w *wrapper) Generate(ctx context.Context, req llm.Request) (llm.Response, 
 func (w *wrapper) Stream(ctx context.Context, req llm.Request) (llm.StreamReader, error) {
 	ctx, span := w.tracer.Start(ctx, "chat "+w.inner.Info().Model)
 	info := w.inner.Info()
-	span.SetAttributes(
-		attribute.String(attrSystem, info.Provider),
-		attribute.String(attrRequestModel, info.Model),
+	setSemconvAttrs(span,
+		attribute.String(otelroot.AttrSystem, info.Provider),
+		attribute.String(otelroot.AttrRequestModel, info.Model),
 	)
 	sr, err := w.inner.Stream(ctx, req)
 	if err != nil {
@@ -113,14 +114,14 @@ func (r *streamReader) Next() (llm.StreamEvent, error) {
 	}
 	if !r.sawContent && ev.Kind != llm.EventDone {
 		r.sawContent = true
-		r.span.AddEvent(eventFirstToken)
+		r.span.AddEvent(otelroot.EventFirstToken)
 	}
 	if ev.Kind == llm.EventDone && ev.Usage != nil {
-		r.span.SetAttributes(
-			attribute.Int(attrUsageInput, ev.Usage.InputTokens),
-			attribute.Int(attrUsageOutput, ev.Usage.OutputTokens),
-			attribute.String(attrUsageSource, string(ev.Usage.Source)),
-			attribute.String(attrFinishReason, string(ev.FinishReason)),
+		setSemconvAttrs(r.span,
+			attribute.Int(otelroot.AttrUsageInput, ev.Usage.InputTokens),
+			attribute.Int(otelroot.AttrUsageOutput, ev.Usage.OutputTokens),
+			attribute.String(otelroot.AttrUsageSource, string(ev.Usage.Source)),
+			attribute.String(otelroot.AttrFinishReason, string(ev.FinishReason)),
 		)
 		r.end()
 	}
@@ -165,19 +166,19 @@ func (w *embedWrapper) Embed(ctx context.Context, texts []string) ([]llm.Vector,
 	ctx, span := w.tracer.Start(ctx, "embed "+w.inner.Info().Model)
 	defer span.End()
 	info := w.inner.Info()
-	span.SetAttributes(
-		attribute.String(attrSystem, info.Provider),
-		attribute.String(attrRequestModel, info.Model),
+	setSemconvAttrs(span,
+		attribute.String(otelroot.AttrSystem, info.Provider),
+		attribute.String(otelroot.AttrRequestModel, info.Model),
 	)
 	vectors, usage, err := w.embedder.Embed(ctx, texts)
 	if err != nil {
 		span.RecordError(err)
 		return nil, llm.Usage{}, err
 	}
-	span.SetAttributes(
-		attribute.Int(attrUsageInput, usage.InputTokens),
-		attribute.Int(attrUsageOutput, usage.OutputTokens),
-		attribute.String(attrUsageSource, string(usage.Source)),
+	setSemconvAttrs(span,
+		attribute.Int(otelroot.AttrUsageInput, usage.InputTokens),
+		attribute.Int(otelroot.AttrUsageOutput, usage.OutputTokens),
+		attribute.String(otelroot.AttrUsageSource, string(usage.Source)),
 	)
 	return vectors, usage, nil
 }
@@ -313,3 +314,10 @@ var (
 	_ llm.Embedder          = (*toolEmbedSchemaWrapper)(nil)
 	_ llm.StructuredOutputs = (*toolEmbedSchemaWrapper)(nil)
 )
+
+func setSemconvAttrs(span trace.Span, attrs ...attribute.KeyValue) {
+	if !otelroot.SemconvEnabled() {
+		return
+	}
+	span.SetAttributes(attrs...)
+}

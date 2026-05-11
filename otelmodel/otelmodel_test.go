@@ -5,6 +5,7 @@ import (
 	"io"
 	"testing"
 
+	otelroot "github.com/costa92/llm-agent-otel"
 	"github.com/costa92/llm-agent/llm"
 	tracesdk "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
@@ -113,8 +114,8 @@ func TestStream_CreatesSingleSpanAndFirstTokenEvent(t *testing.T) {
 	if got := len(spans[0].Events); got != 1 {
 		t.Fatalf("len(events) = %d, want 1", got)
 	}
-	if spans[0].Events[0].Name != eventFirstToken {
-		t.Fatalf("event name = %q, want %q", spans[0].Events[0].Name, eventFirstToken)
+	if spans[0].Events[0].Name != otelroot.EventFirstToken {
+		t.Fatalf("event name = %q, want %q", spans[0].Events[0].Name, otelroot.EventFirstToken)
 	}
 }
 
