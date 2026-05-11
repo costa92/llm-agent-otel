@@ -1,0 +1,20 @@
+services:
+  otel-lgtm:
+    image: grafana/otel-lgtm:latest
+    ports:
+      - "3000:3000"
+      - "4317:4317"
+      - "4318:4318"
+
+  demo:
+    image: golang:1.26
+    working_dir: /workspace
+    volumes:
+      - ..:/workspace
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-lgtm:4318
+      OTEL_SEMCONV_STABILITY_OPT_IN: gen_ai_latest_experimental
+    command: >
+      sh -lc "cd compose/demo && go run ."
+    depends_on:
+      - otel-lgtm

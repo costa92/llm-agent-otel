@@ -2,9 +2,15 @@
 
 OpenTelemetry decorator wrappers for [`github.com/costa92/llm-agent`](https://github.com/costa92/llm-agent). Wraps `llm.ChatModel` (and the `agents.Agent` interface) with `gen_ai.*` semconv-aware spans, metrics, and slog bridge — without touching the core repo's stdlib-only invariant.
 
-> **v0.1.0-pre / Phase 0 skeleton.** Decorator implementations land in Phase 5 per the [llm-agent ROADMAP](https://github.com/costa92/llm-agent/blob/main/.planning/ROADMAP.md). This repo currently contains only build infrastructure - no Go source files yet.
->
-> **Expected CI status:** The first push CI run may fail on `go mod tidy` because `github.com/costa92/llm-agent v0.3.0-pre.1` does not exist until the core repo tags it at the end of Phase 0. This is intentional Phase-0 signal. Once the core repo cuts the `v0.3.0-pre.1` tag, sister-repo CI goes green automatically.
+This repo now ships the Phase 5 observability surface:
+
+- `otelmodel.Wrap(...)` for `llm.ChatModel`
+- `otelagent.Wrap(...)` for `agents.Agent`
+- `otelslog.NewHandler(...)` for `slog.Handler`
+- centralized `gen_ai.*` constants and gates
+- low-cardinality metrics helpers in `otelmetrics/`
+- OTLP exporter wiring defaults
+- a `compose/compose.yaml` demo using `grafana/otel-lgtm`
 
 ## Install
 
@@ -12,21 +18,93 @@ OpenTelemetry decorator wrappers for [`github.com/costa92/llm-agent`](https://gi
 go get github.com/costa92/llm-agent-otel@v0.1.0   # available after Phase 5
 ```
 
-## Quick API preview (Phase 5)
+## Quick start
 
 ```go
 import (
+    "context"
+    "log/slog"
+
+    "github.com/costa92/llm-agent"
     "github.com/costa92/llm-agent/llm"
-    "github.com/costa92/llm-agent-providers/openai"
+    otel "github.com/costa92/llm-agent-otel"
+    "github.com/costa92/llm-agent-otel/otelagent"
     "github.com/costa92/llm-agent-otel/otelmodel"
+    "github.com/costa92/llm-agent-otel/otelslog"
 )
 
-// Wraps the inner ChatModel without losing capability interfaces:
-// otelmodel.Wrap returns a value that ALSO implements ToolCaller / Embedder
-// / StructuredOutputs if the inner does (capability-preserving via type-
-// assertion + rewrap pattern; K3 keystone).
-m := otelmodel.Wrap(openai.New(openai.WithModel("gpt-4o-mini")))
+ctx := context.Background()
+
+tp, _ := otel.NewTracerProvider(ctx, otel.DefaultExporterConfig())
+defer tp.Shutdown(ctx)
+
+model := llm.NewScriptedLLM(llm.WithModel("demo"))
+wrappedModel := otelmodel.Wrap(model, otelmodel.Config{TracerProvider: tp})
+agent := agents.NewSimpleAgent(wrappedModel, agents.SimpleOptions{Name: "demo"})
+wrappedAgent := otelagent.Wrap(agent, otelagent.Config{TracerProvider: tp})
+
+logger := slog.New(otelslog.NewHandler(slog.Default().Handler(), otelslog.Options{}))
+logger.InfoContext(ctx, "agent run starting", slog.String(otel.AttrSystem, "scripted"))
+
+_, _ = wrappedAgent.Run(ctx, "hello")
 ```
+
+`otelmodel.Wrap(...)` preserves `ToolCaller`, `Embedder`, and
+`StructuredOutputs` when the inner model implements them.
+
+## Exporter defaults
+
+`DefaultExporterConfig()` currently defaults to OTLP HTTP on `http://localhost:4318`:
+
+```go
+cfg := otel.DefaultExporterConfig()
+// Protocol: "http"
+// Endpoint: "http://localhost:4318"
+```
+
+To opt into OTLP gRPC instead:
+
+```go
+cfg := otel.DefaultExporterConfig()
+cfg.Protocol = otel.ProtocolGRPC
+cfg.Endpoint = "localhost:4317"
+```
+
+## Opt-in semantics
+
+Experimental `gen_ai.*` semconv emission is gated behind:
+
+```bash
+export OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental
+```
+
+Prompt/response content capture is disabled by default. To enable it:
+
+```bash
+export OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true
+```
+
+When content capture is enabled, captured content is routed through the built-in
+redactor before being emitted.
+
+## Demo compose flow
+
+The demo stack lives at [compose/compose.yaml](./compose/compose.yaml) and uses
+`grafana/otel-lgtm` as the one-container observability stack.
+
+Run:
+
+```bash
+docker compose -f compose/compose.yaml up --build
+```
+
+Then:
+
+1. Open Grafana at `http://localhost:3000`
+2. Confirm the demo program emits a wrapped trace
+3. Verify the trace contains the `invoke_agent` → `chat` shape in Tempo
+
+The demo program source is at [compose/demo/main.go](./compose/demo/main.go).
 
 ## Cross-repo iteration pattern (INFRA-06)
 
