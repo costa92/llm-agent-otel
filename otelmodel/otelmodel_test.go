@@ -2,11 +2,13 @@ package otelmodel
 
 import (
 	"context"
+	"errors"
 	"io"
 	"testing"
 
 	otelroot "github.com/costa92/llm-agent-otel"
 	"github.com/costa92/llm-agent/llm"
+	"go.opentelemetry.io/otel/codes"
 	tracesdk "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
@@ -139,4 +141,40 @@ func TestWithTools_RewrapsBoundModel(t *testing.T) {
 	if _, ok := any(bound).(llm.ToolCaller); !ok {
 		t.Fatal("bound wrapped model lost ToolCaller")
 	}
+}
+
+func TestGenerate_MarksSpanErrorOnFailure(t *testing.T) {
+	cfg, exp := testConfig()
+	wrapped := Wrap(errorChatModel{provider: "scripted", model: "err-model", err: errors.New("boom")}, cfg)
+
+	_, err := wrapped.Generate(context.Background(), llm.Request{})
+	if err == nil || err.Error() != "boom" {
+		t.Fatalf("Generate() error = %v, want boom", err)
+	}
+
+	spans := exp.GetSpans()
+	if len(spans) != 1 {
+		t.Fatalf("len(spans) = %d, want 1", len(spans))
+	}
+	if spans[0].Status.Code != codes.Error {
+		t.Fatalf("span status = %v, want %v", spans[0].Status.Code, codes.Error)
+	}
+}
+
+type errorChatModel struct {
+	provider string
+	model    string
+	err      error
+}
+
+func (m errorChatModel) Generate(context.Context, llm.Request) (llm.Response, error) {
+	return llm.Response{}, m.err
+}
+
+func (m errorChatModel) Stream(context.Context, llm.Request) (llm.StreamReader, error) {
+	return nil, m.err
+}
+
+func (m errorChatModel) Info() llm.ProviderInfo {
+	return llm.ProviderInfo{Provider: m.provider, Model: m.model}
 }

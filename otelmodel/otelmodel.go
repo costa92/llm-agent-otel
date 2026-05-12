@@ -7,6 +7,7 @@ import (
 	otelroot "github.com/costa92/llm-agent-otel"
 	"github.com/costa92/llm-agent/llm"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -60,6 +61,7 @@ func (w *wrapper) Generate(ctx context.Context, req llm.Request) (llm.Response, 
 	resp, err := w.inner.Generate(ctx, req)
 	if err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return resp, err
 	}
 	setSemconvAttrs(span,
@@ -81,6 +83,7 @@ func (w *wrapper) Stream(ctx context.Context, req llm.Request) (llm.StreamReader
 	sr, err := w.inner.Stream(ctx, req)
 	if err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		span.End()
 		return nil, err
 	}
@@ -108,6 +111,7 @@ func (r *streamReader) Next() (llm.StreamEvent, error) {
 	if err != nil {
 		if err != io.EOF {
 			r.span.RecordError(err)
+			r.span.SetStatus(codes.Error, err.Error())
 		}
 		r.end()
 		return ev, err
@@ -173,6 +177,7 @@ func (w *embedWrapper) Embed(ctx context.Context, texts []string) ([]llm.Vector,
 	vectors, usage, err := w.embedder.Embed(ctx, texts)
 	if err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, llm.Usage{}, err
 	}
 	setSemconvAttrs(span,

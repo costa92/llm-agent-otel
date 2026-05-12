@@ -5,6 +5,7 @@ import (
 
 	agents "github.com/costa92/llm-agent"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -39,6 +40,7 @@ func (w *wrapper) Run(ctx context.Context, input string) (agents.Result, error) 
 	ch, err := w.inner.RunStream(ctx, input)
 	if err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return agents.Result{}, err
 	}
 
@@ -52,6 +54,7 @@ func (w *wrapper) Run(ctx context.Context, input string) (agents.Result, error) 
 			if ev.Err != nil {
 				builder.closeOpenSpans()
 				span.RecordError(ev.Err)
+				span.SetStatus(codes.Error, ev.Err.Error())
 				return agents.Result{}, ev.Err
 			}
 			builder.closeOpenSpans()
@@ -74,6 +77,7 @@ func (w *wrapper) RunStream(ctx context.Context, input string) (<-chan agents.St
 	inner, err := w.inner.RunStream(ctx, input)
 	if err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		span.End()
 		return nil, err
 	}
@@ -94,6 +98,7 @@ func (w *wrapper) RunStream(ctx context.Context, input string) (<-chan agents.St
 				if ev.Err != nil {
 					builder.closeOpenSpans()
 					span.RecordError(ev.Err)
+					span.SetStatus(codes.Error, ev.Err.Error())
 				} else {
 					builder.closeOpenSpans()
 				}

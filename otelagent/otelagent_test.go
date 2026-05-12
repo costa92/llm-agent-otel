@@ -3,10 +3,12 @@ package otelagent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	agents "github.com/costa92/llm-agent"
 	"github.com/costa92/llm-agent/llm"
+	"go.opentelemetry.io/otel/codes"
 	tracesdk "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
@@ -115,6 +117,43 @@ func TestRun_ReActAgent_ProducesInvokeAgentChatExecuteToolTree(t *testing.T) {
 	assertParentChild(t, spans, "invoke_agent react", "chat")
 	assertParentChild(t, spans, "invoke_agent react", "execute_tool calc")
 	assertParentChildCount(t, spans, "invoke_agent react", "chat", 2)
+}
+
+func TestRun_MarksInvokeAgentSpanErrorOnStreamFailure(t *testing.T) {
+	cfg, exp := testConfig()
+	agent := errorStreamAgent{err: errors.New("boom")}
+
+	_, err := Wrap(agent, cfg).Run(context.Background(), "hi")
+	if err == nil || err.Error() != "boom" {
+		t.Fatalf("Run() error = %v, want boom", err)
+	}
+
+	spans := exp.GetSpans()
+	if len(spans) != 1 {
+		t.Fatalf("len(spans) = %d, want 1", len(spans))
+	}
+	if spans[0].Status.Code != codes.Error {
+		t.Fatalf("span status = %v, want %v", spans[0].Status.Code, codes.Error)
+	}
+}
+
+type errorStreamAgent struct {
+	err error
+}
+
+func (a errorStreamAgent) Name() string { return "error-stream" }
+
+func (a errorStreamAgent) Run(context.Context, string) (agents.Result, error) {
+	return agents.Result{}, a.err
+}
+
+func (a errorStreamAgent) RunStream(context.Context, string) (<-chan agents.StepEvent, error) {
+	ch := make(chan agents.StepEvent, 1)
+	go func() {
+		defer close(ch)
+		ch <- agents.StepEvent{Done: true, Err: a.err}
+	}()
+	return ch, nil
 }
 
 func assertSpanNames(t *testing.T, spans tracetest.SpanStubs, want ...string) {
