@@ -11,6 +11,7 @@ package otelrag
 
 import (
 	"context"
+	"time"
 
 	"github.com/costa92/llm-agent-rag/ingest"
 	"github.com/costa92/llm-agent-rag/rag"
@@ -19,6 +20,7 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	apimetric "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -47,10 +49,13 @@ const (
 	OperationAsk      = "rag.ask"
 )
 
-// Config selects the TracerProvider used to emit spans. Nil falls back
-// to the no-op tracer provider.
+// Config selects the providers used to emit telemetry. A nil TracerProvider
+// falls back to the no-op tracer provider; a nil MeterProvider falls back to
+// the no-op meter provider — so metric emission degrades exactly as span
+// emission does.
 type Config struct {
 	TracerProvider trace.TracerProvider
+	MeterProvider  apimetric.MeterProvider
 }
 
 func (c Config) tracerProvider() trace.TracerProvider {
@@ -66,10 +71,12 @@ func (c Config) tracerProvider() trace.TracerProvider {
 type Wrapper struct {
 	inner  *rag.System
 	tracer trace.Tracer
+	instr  instruments
 }
 
-// Wrap returns a Wrapper around sys. Pass an optional Config to select a
-// non-default tracer provider.
+// Wrap returns a Wrapper around sys. Pass an optional Config to select
+// non-default tracer/meter providers. Wrap never fails: metric instruments
+// degrade to no-ops if the meter cannot build them.
 func Wrap(sys *rag.System, opts ...Config) *Wrapper {
 	cfg := Config{}
 	if len(opts) > 0 {
@@ -79,6 +86,7 @@ func Wrap(sys *rag.System, opts ...Config) *Wrapper {
 	return &Wrapper{
 		inner:  sys,
 		tracer: tp.Tracer(instrumentationName),
+		instr:  newInstruments(cfg.meterProvider().Meter(instrumentationName)),
 	}
 }
 
@@ -93,7 +101,9 @@ func (w *Wrapper) Import(ctx context.Context, docs []ingest.Document, opts inges
 	if opts.Namespace != "" {
 		span.SetAttributes(attribute.String(AttrNamespace, opts.Namespace))
 	}
+	start := time.Now()
 	res, err := w.inner.Import(ctx, docs, opts)
+	w.instr.recordOp(ctx, OperationImport, time.Since(start), res.Metrics.Stages, err)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
@@ -117,7 +127,9 @@ func (w *Wrapper) Retrieve(ctx context.Context, query string, opts rag.SearchOpt
 		attribute.String(AttrNamespace, opts.Namespace),
 		attribute.Int(AttrTopK, opts.TopK),
 	)
+	start := time.Now()
 	hits, err := w.inner.Retrieve(ctx, query, opts)
+	w.instr.recordOp(ctx, OperationRetrieve, time.Since(start), nil, err)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
@@ -136,7 +148,12 @@ func (w *Wrapper) Ask(ctx context.Context, question string, opts rag.AskOptions)
 		attribute.String(AttrNamespace, opts.Search.Namespace),
 		attribute.Int(AttrTopK, opts.Search.TopK),
 	)
+	start := time.Now()
 	ans, err := w.inner.Ask(ctx, question, opts)
+	w.instr.recordOp(ctx, OperationAsk, time.Since(start), ans.Diagnostics.Metrics.Stages, err)
+	if err == nil {
+		w.instr.recordTokens(ctx, OperationAsk, ans.Diagnostics.Metrics.Tokens)
+	}
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())

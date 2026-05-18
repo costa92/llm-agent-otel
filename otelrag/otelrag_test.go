@@ -9,6 +9,8 @@ import (
 	"github.com/costa92/llm-agent-rag/ingest"
 	"github.com/costa92/llm-agent-rag/rag"
 
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	tracesdk "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
@@ -183,4 +185,88 @@ func eventNames(events []tracesdk.Event) []string {
 		out = append(out, ev.Name)
 	}
 	return out
+}
+
+// --- metrics (RAG-OBS-02) ---
+
+func newMetricWrapper(t *testing.T) (*otelrag.Wrapper, *sdkmetric.ManualReader) {
+	t.Helper()
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	sys := rag.New(rag.Options{
+		Model:    fakeModel{},
+		Splitter: ingest.NewMarkdownSplitter(500, 50),
+	})
+	return otelrag.Wrap(sys, otelrag.Config{MeterProvider: mp}), reader
+}
+
+func metricNames(t *testing.T, reader *sdkmetric.ManualReader) map[string]bool {
+	t.Helper()
+	rm := &metricdata.ResourceMetrics{}
+	if err := reader.Collect(context.Background(), rm); err != nil {
+		t.Fatalf("Collect(): %v", err)
+	}
+	seen := make(map[string]bool)
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			seen[m.Name] = true
+		}
+	}
+	return seen
+}
+
+func assertMetrics(t *testing.T, reader *sdkmetric.ManualReader, want ...string) {
+	t.Helper()
+	seen := metricNames(t, reader)
+	for _, name := range want {
+		if !seen[name] {
+			t.Fatalf("metric %q missing; saw %v", name, seen)
+		}
+	}
+}
+
+func TestWrap_AskEmitsREDAndTokenMetrics(t *testing.T) {
+	w, reader := newMetricWrapper(t)
+	if _, err := w.Import(context.Background(), []ingest.Document{
+		{ID: "d1", Content: "# Cuisine\nFrench pastry recipes and croissants."},
+	}, ingest.ImportOptions{Namespace: "test"}); err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	if _, err := w.Ask(context.Background(), "pastry", rag.AskOptions{
+		Search: rag.SearchOptions{Namespace: "test", TopK: 1},
+	}); err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	assertMetrics(t, reader,
+		otelrag.MetricRequests, otelrag.MetricDuration, otelrag.MetricTokens)
+}
+
+func TestWrap_ErrorEmitsErrorMetric(t *testing.T) {
+	w, reader := newMetricWrapper(t)
+	// An empty query fails inside Retrieve → Ask returns an error.
+	if _, err := w.Ask(context.Background(), "", rag.AskOptions{
+		Search: rag.SearchOptions{Namespace: "test", TopK: 1},
+	}); err == nil {
+		t.Fatalf("Ask with empty query: want error")
+	}
+	assertMetrics(t, reader, otelrag.MetricRequests, otelrag.MetricErrors)
+}
+
+func TestWrap_NoMeterProviderIsNoopSafe(t *testing.T) {
+	sys := rag.New(rag.Options{
+		Model:    fakeModel{},
+		Splitter: ingest.NewMarkdownSplitter(500, 50),
+	})
+	w := otelrag.Wrap(sys) // no Config → no-op meter
+	if _, err := w.Import(context.Background(), []ingest.Document{
+		{ID: "d1", Content: "# T\ncontent"},
+	}, ingest.ImportOptions{Namespace: "test"}); err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	if _, err := w.Ask(context.Background(), "content", rag.AskOptions{
+		Search: rag.SearchOptions{Namespace: "test", TopK: 1},
+	}); err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	// No panic with a no-op meter = pass.
 }
