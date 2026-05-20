@@ -2,9 +2,10 @@ module github.com/costa92/llm-agent-otel
 
 go 1.26.0
 
-require github.com/costa92/llm-agent v0.4.0
+require github.com/costa92/llm-agent v0.5.0
 
 require (
+	github.com/costa92/llm-agent-rag v1.0.0
 	go.opentelemetry.io/otel v1.43.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.40.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.43.0
