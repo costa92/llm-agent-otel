@@ -2,9 +2,9 @@ services:
   otel-lgtm:
     image: grafana/otel-lgtm:latest
     ports:
-      - "3000:3000"
-      - "4317:4317"
-      - "4318:4318"
+      - "${OTEL_DEMO_GRAFANA_PORT:-3000}:3000"
+      - "${OTEL_DEMO_OTLP_GRPC_PORT:-4317}:4317"
+      - "${OTEL_DEMO_OTLP_HTTP_PORT:-4318}:4318"
 
   demo:
     image: golang:1.26
