@@ -70,6 +70,50 @@ cfg.Protocol = otel.ProtocolGRPC
 cfg.Endpoint = "localhost:4317"
 ```
 
+## Standard OTel env vars
+
+`DefaultExporterConfig()` and `NewTracerProvider(ctx, cfg)` both honor the
+standard OpenTelemetry exporter env vars:
+
+| Env var                              | Effect                                         |
+| ------------------------------------ | ---------------------------------------------- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`        | Overrides `Endpoint`                           |
+| `OTEL_EXPORTER_OTLP_PROTOCOL`        | `grpc` → `ProtocolGRPC`; `http` / `http/protobuf` → `ProtocolHTTP` |
+| `OTEL_EXPORTER_OTLP_INSECURE`        | Parsed as bool — overrides `Insecure`          |
+
+Precedence is **caller > env > hardcoded default**: any non-zero field on the
+`ExporterConfig` value you hand to `NewTracerProvider` is preserved verbatim;
+the env vars only fill caller-blank fields; the hardcoded defaults
+(`http://localhost:4318`, `ProtocolHTTP`, `Insecure: true`) apply only when
+both caller and env are silent.
+
+```bash
+# Switch the whole process to a remote OTLP collector without code changes
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://collector.prod:4318
+export OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+export OTEL_EXPORTER_OTLP_INSECURE=false
+```
+
+## Sampling
+
+`ExporterConfig` exposes two sampler controls:
+
+```go
+cfg := otel.DefaultExporterConfig()
+
+// Option 1: hand the SDK a fully-built Sampler. Wins over SamplingRatio.
+cfg.Sampler = sdktrace.ParentBased(sdktrace.TraceIDRatioBased(0.1))
+
+// Option 2: ratio-only shortcut. Values in (0, 1] become
+// ParentBased(TraceIDRatioBased(ratio)); any other value falls back to
+// ParentBased(AlwaysSample()), matching the pre-P1-10 default.
+cfg.SamplingRatio = 0.1
+```
+
+When neither field is set, the tracer provider keeps the historical default of
+`ParentBased(AlwaysSample())`, so callers upgrading from v0.2.x see no
+behavior change.
+
 ## Opt-in semantics
 
 Experimental `gen_ai.*` semconv emission is gated behind:
