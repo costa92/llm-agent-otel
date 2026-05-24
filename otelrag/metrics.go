@@ -14,10 +14,11 @@ import (
 // RAG metric names. Kept local to this package, like the attribute keys —
 // they follow the gen_ai.* shape without belonging to that convention space.
 const (
-	MetricRequests = "rag.requests"          // RED: request rate
-	MetricErrors   = "rag.errors"            // RED: error count
-	MetricDuration = "rag.operation.duration" // RED: operation/stage duration (ms)
-	MetricTokens   = "rag.tokens"            // cost: token count
+	MetricRequests       = "rag.requests"           // RED: request rate
+	MetricErrors         = "rag.errors"             // RED: error count
+	MetricDuration       = "rag.operation.duration" // RED: operation/stage duration (ms)
+	MetricTokens         = "rag.tokens"             // cost: token count
+	MetricGenerateTokens = "rag.generate.tokens"    // cost: per-Generate token count (v0.3.0)
 )
 
 // RAG metric attribute keys.
@@ -26,6 +27,7 @@ const (
 	AttrStage     = "rag.stage"
 	AttrTokenKind = "rag.token.kind"
 	AttrErrorFlag = "rag.error"
+	AttrEstimated = "rag.estimated" // bool: token counts derived from a counter (v0.3.0)
 )
 
 // meterProvider returns the configured MeterProvider, or a no-op one.
@@ -40,13 +42,14 @@ func (c Config) meterProvider() apimetric.MeterProvider {
 // always non-nil: newInstruments substitutes a no-op instrument on a build
 // error so Wrap need not return one.
 type instruments struct {
-	requests apimetric.Int64Counter
-	errors   apimetric.Int64Counter
-	duration apimetric.Float64Histogram
-	tokens   apimetric.Int64Counter
+	requests       apimetric.Int64Counter
+	errors         apimetric.Int64Counter
+	duration       apimetric.Float64Histogram
+	tokens         apimetric.Int64Counter
+	generateTokens apimetric.Int64Counter
 }
 
-// newInstruments builds the four RAG instruments from meter, falling back to
+// newInstruments builds the RAG instruments from meter, falling back to
 // no-op instruments for any that fail to build.
 func newInstruments(meter apimetric.Meter) instruments {
 	noopMeter := metricnoop.NewMeterProvider().Meter(instrumentationName)
@@ -67,7 +70,21 @@ func newInstruments(meter apimetric.Meter) instruments {
 	if err != nil {
 		tokens, _ = noopMeter.Int64Counter(MetricTokens)
 	}
-	return instruments{requests: requests, errors: errs, duration: duration, tokens: tokens}
+	generateTokens, err := meter.Int64Counter(
+		MetricGenerateTokens,
+		apimetric.WithDescription("Per-Generate token consumption inside the RAG pipeline, split by stage and kind."),
+		apimetric.WithUnit("{token}"),
+	)
+	if err != nil {
+		generateTokens, _ = noopMeter.Int64Counter(MetricGenerateTokens)
+	}
+	return instruments{
+		requests:       requests,
+		errors:         errs,
+		duration:       duration,
+		tokens:         tokens,
+		generateTokens: generateTokens,
+	}
 }
 
 // recordOp emits the RED metrics for one operation: a request count, an
@@ -104,6 +121,34 @@ func (in instruments) recordTokens(ctx context.Context, op string, t obs.TokenUs
 		in.tokens.Add(ctx, int64(t.CompletionTokens), apimetric.WithAttributes(
 			opAttr, attribute.String(AttrTokenKind, "completion"),
 		))
+	}
+}
+
+// recordStageTokens emits the per-Generate token-cost metric for one named
+// pipeline stage, split into prompt and completion kinds. Zero counts are
+// skipped. Safe to call concurrently — synchronous OTel SDK instruments are
+// thread-safe. This is the receiver for rag.Observer.OnGenerateUsage
+// introduced in llm-agent-rag v1.5.0.
+//
+// rag.generate.tokens is intentionally separate from rag.tokens: the former
+// answers "what did each pipeline stage cost?", the latter answers "what
+// did the answer leg cost?". Combining both in one dashboard would
+// double-count the answer leg.
+func (in instruments) recordStageTokens(ctx context.Context, stage string, usage obs.TokenUsage) {
+	if in.generateTokens == nil {
+		return
+	}
+	base := []attribute.KeyValue{
+		attribute.String(AttrStage, stage),
+		attribute.Bool(AttrEstimated, usage.Estimated),
+	}
+	if usage.PromptTokens > 0 {
+		attrs := append(append([]attribute.KeyValue{}, base...), attribute.String(AttrTokenKind, "prompt"))
+		in.generateTokens.Add(ctx, int64(usage.PromptTokens), apimetric.WithAttributes(attrs...))
+	}
+	if usage.CompletionTokens > 0 {
+		attrs := append(append([]attribute.KeyValue{}, base...), attribute.String(AttrTokenKind, "completion"))
+		in.generateTokens.Add(ctx, int64(usage.CompletionTokens), apimetric.WithAttributes(attrs...))
 	}
 }
 

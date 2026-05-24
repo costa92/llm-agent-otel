@@ -2,13 +2,16 @@ package otelrag_test
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/costa92/llm-agent-otel/otelrag"
 	"github.com/costa92/llm-agent-rag/generate"
 	"github.com/costa92/llm-agent-rag/ingest"
+	"github.com/costa92/llm-agent-rag/obs"
 	"github.com/costa92/llm-agent-rag/rag"
 
+	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	tracesdk "go.opentelemetry.io/otel/sdk/trace"
@@ -250,6 +253,240 @@ func TestWrap_ErrorEmitsErrorMetric(t *testing.T) {
 		t.Fatalf("Ask with empty query: want error")
 	}
 	assertMetrics(t, reader, otelrag.MetricRequests, otelrag.MetricErrors)
+}
+
+// --- OnGenerateUsage metric (RAG-OBS-03, v0.3.0) ---
+
+// collectDataPoints returns the Int64 Sum data points of the named metric
+// from a ManualReader collection. Fails the test if the metric is absent
+// or has the wrong shape.
+func collectDataPoints(t *testing.T, reader *sdkmetric.ManualReader, name string) []metricdata.DataPoint[int64] {
+	t.Helper()
+	rm := &metricdata.ResourceMetrics{}
+	if err := reader.Collect(context.Background(), rm); err != nil {
+		t.Fatalf("Collect(): %v", err)
+	}
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if m.Name != name {
+				continue
+			}
+			sum, ok := m.Data.(metricdata.Sum[int64])
+			if !ok {
+				t.Fatalf("metric %q is not Sum[int64]; got %T", name, m.Data)
+			}
+			return sum.DataPoints
+		}
+	}
+	return nil
+}
+
+// findDataPoint finds the first data point whose attributes contain ALL of
+// the given key/value pairs. Returns the data point and true on match.
+func findDataPoint(dps []metricdata.DataPoint[int64], match map[string]string) (metricdata.DataPoint[int64], bool) {
+	for _, dp := range dps {
+		ok := true
+		for wantKey, wantVal := range match {
+			val, present := dp.Attributes.Value(attrKey(wantKey))
+			if !present || val.Emit() != wantVal {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			return dp, true
+		}
+	}
+	return metricdata.DataPoint[int64]{}, false
+}
+
+func attrKey(k string) attribute.Key { return attribute.Key(k) }
+
+func TestObserver_OnGenerateUsageEmitsPromptCompletionMetrics(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	observer := otelrag.Observer(otelrag.Config{MeterProvider: mp})
+	if observer.OnGenerateUsage == nil {
+		t.Fatalf("Observer().OnGenerateUsage is nil; want non-nil hook")
+	}
+
+	observer.OnGenerateUsage(context.Background(), "ask", obs.TokenUsage{
+		PromptTokens:     100,
+		CompletionTokens: 50,
+		Estimated:        false,
+	})
+
+	dps := collectDataPoints(t, reader, otelrag.MetricGenerateTokens)
+	if len(dps) != 2 {
+		t.Fatalf("got %d data points, want 2; dps=%+v", len(dps), dps)
+	}
+	prompt, ok := findDataPoint(dps, map[string]string{
+		otelrag.AttrStage:     "ask",
+		otelrag.AttrTokenKind: "prompt",
+		otelrag.AttrEstimated: "false",
+	})
+	if !ok {
+		t.Fatalf("prompt data point not found in %+v", dps)
+	}
+	if prompt.Value != 100 {
+		t.Fatalf("prompt value = %d, want 100", prompt.Value)
+	}
+	completion, ok := findDataPoint(dps, map[string]string{
+		otelrag.AttrStage:     "ask",
+		otelrag.AttrTokenKind: "completion",
+		otelrag.AttrEstimated: "false",
+	})
+	if !ok {
+		t.Fatalf("completion data point not found in %+v", dps)
+	}
+	if completion.Value != 50 {
+		t.Fatalf("completion value = %d, want 50", completion.Value)
+	}
+}
+
+func TestObserver_OnGenerateUsageDropsZeroTokens(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	observer := otelrag.Observer(otelrag.Config{MeterProvider: mp})
+
+	observer.OnGenerateUsage(context.Background(), "ask", obs.TokenUsage{
+		PromptTokens:     0,
+		CompletionTokens: 50,
+	})
+
+	dps := collectDataPoints(t, reader, otelrag.MetricGenerateTokens)
+	if len(dps) != 1 {
+		t.Fatalf("got %d data points, want 1 (only completion); dps=%+v", len(dps), dps)
+	}
+	if _, ok := findDataPoint(dps, map[string]string{
+		otelrag.AttrTokenKind: "completion",
+	}); !ok {
+		t.Fatalf("expected completion data point in %+v", dps)
+	}
+	if _, ok := findDataPoint(dps, map[string]string{
+		otelrag.AttrTokenKind: "prompt",
+	}); ok {
+		t.Fatalf("did not expect prompt data point; dps=%+v", dps)
+	}
+}
+
+func TestObserver_OnGenerateUsagePreservesEstimatedFlag(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	observer := otelrag.Observer(otelrag.Config{MeterProvider: mp})
+
+	observer.OnGenerateUsage(context.Background(), "grader", obs.TokenUsage{
+		PromptTokens:     7,
+		CompletionTokens: 3,
+		Estimated:        true,
+	})
+
+	dps := collectDataPoints(t, reader, otelrag.MetricGenerateTokens)
+	if len(dps) != 2 {
+		t.Fatalf("got %d data points, want 2; dps=%+v", len(dps), dps)
+	}
+	if _, ok := findDataPoint(dps, map[string]string{
+		otelrag.AttrStage:     "grader",
+		otelrag.AttrTokenKind: "prompt",
+		otelrag.AttrEstimated: "true",
+	}); !ok {
+		t.Fatalf("estimated=true prompt data point not found in %+v", dps)
+	}
+}
+
+func TestMakeOnGenerateUsageHook_RecordsTokens(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+
+	hook := otelrag.MakeOnGenerateUsageHook(mp)
+	if hook == nil {
+		t.Fatalf("MakeOnGenerateUsageHook returned nil")
+	}
+	hook(context.Background(), "planner", obs.TokenUsage{
+		PromptTokens:     42,
+		CompletionTokens: 8,
+		Estimated:        true,
+	})
+
+	dps := collectDataPoints(t, reader, otelrag.MetricGenerateTokens)
+	if len(dps) != 2 {
+		t.Fatalf("got %d data points, want 2; dps=%+v", len(dps), dps)
+	}
+	if dp, ok := findDataPoint(dps, map[string]string{
+		otelrag.AttrStage:     "planner",
+		otelrag.AttrTokenKind: "prompt",
+		otelrag.AttrEstimated: "true",
+	}); !ok || dp.Value != 42 {
+		t.Fatalf("prompt data point missing or wrong value; got %+v ok=%v", dp, ok)
+	}
+	if dp, ok := findDataPoint(dps, map[string]string{
+		otelrag.AttrStage:     "planner",
+		otelrag.AttrTokenKind: "completion",
+		otelrag.AttrEstimated: "true",
+	}); !ok || dp.Value != 8 {
+		t.Fatalf("completion data point missing or wrong value; got %+v ok=%v", dp, ok)
+	}
+}
+
+func TestMakeOnGenerateUsageHook_NilMeterProviderIsNoop(t *testing.T) {
+	hook := otelrag.MakeOnGenerateUsageHook(nil)
+	if hook == nil {
+		t.Fatalf("MakeOnGenerateUsageHook(nil) returned nil; want a no-op closure")
+	}
+	// Must not panic.
+	hook(context.Background(), "ask", obs.TokenUsage{
+		PromptTokens:     1,
+		CompletionTokens: 1,
+	})
+}
+
+func TestObserver_OnGenerateUsageConcurrentSafe(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	observer := otelrag.Observer(otelrag.Config{MeterProvider: mp})
+	if observer.OnGenerateUsage == nil {
+		t.Fatalf("Observer().OnGenerateUsage is nil")
+	}
+
+	const goroutines = 50
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	ctx := context.Background()
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			defer wg.Done()
+			observer.OnGenerateUsage(ctx, "ask", obs.TokenUsage{
+				PromptTokens:     1,
+				CompletionTokens: 1,
+			})
+		}()
+	}
+	wg.Wait()
+
+	dps := collectDataPoints(t, reader, otelrag.MetricGenerateTokens)
+	if len(dps) != 2 {
+		t.Fatalf("got %d data points, want 2 (one per kind); dps=%+v", len(dps), dps)
+	}
+	prompt, ok := findDataPoint(dps, map[string]string{
+		otelrag.AttrStage:     "ask",
+		otelrag.AttrTokenKind: "prompt",
+	})
+	if !ok {
+		t.Fatalf("prompt data point not found in %+v", dps)
+	}
+	if prompt.Value != int64(goroutines) {
+		t.Fatalf("prompt cumulative value = %d, want %d", prompt.Value, goroutines)
+	}
+	completion, ok := findDataPoint(dps, map[string]string{
+		otelrag.AttrStage:     "ask",
+		otelrag.AttrTokenKind: "completion",
+	})
+	if !ok {
+		t.Fatalf("completion data point not found in %+v", dps)
+	}
+	if completion.Value != int64(goroutines) {
+		t.Fatalf("completion cumulative value = %d, want %d", completion.Value, goroutines)
+	}
 }
 
 func TestWrap_NoMeterProviderIsNoopSafe(t *testing.T) {

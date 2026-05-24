@@ -52,6 +52,49 @@ _, _ = wrappedAgent.Run(ctx, "hello")
 `otelmodel.Wrap(...)` preserves `ToolCaller`, `Embedder`, and
 `StructuredOutputs` when the inner model implements them.
 
+## RAG per-stage token metrics (`otelrag` v0.3.0)
+
+`otelrag` exposes two wiring paths for the
+`rag.Observer.OnGenerateUsage` hook shipped in `llm-agent-rag` v1.5.0.
+Both record to a new instrument:
+
+| Metric                  | Kind          | Attributes                                                    |
+| ----------------------- | ------------- | ------------------------------------------------------------- |
+| `rag.generate.tokens`   | Int64Counter  | `rag.stage` (e.g. `ask`, `reflection_decision`, `grader`, `planner`), `rag.token.kind` (`prompt`/`completion`), `rag.estimated` (bool) |
+
+**Path A — `Observer(cfg)` factory** (covers all four hooks at once):
+
+```go
+mp := otel.GetMeterProvider()
+observer := otelrag.Observer(otelrag.Config{MeterProvider: mp})
+sys := rag.New(rag.Options{Observer: observer /* ... */})
+wrapper := otelrag.Wrap(sys, otelrag.Config{MeterProvider: mp})
+```
+
+**Path B — `MakeOnGenerateUsageHook` escape hatch** (compose with your own hooks):
+
+```go
+mp := otel.GetMeterProvider()
+hook := otelrag.MakeOnGenerateUsageHook(mp)
+observer := rag.Observer{
+    OnGenerateUsage: hook,
+    // ... your own OnImport / OnRetrieve / OnAsk implementations ...
+}
+sys := rag.New(rag.Options{Observer: observer /* ... */})
+wrapper := otelrag.Wrap(sys, otelrag.Config{MeterProvider: mp})
+```
+
+`otelrag.Wrap(sys, cfg)` does **not** auto-install `OnGenerateUsage` —
+`*rag.System` does not expose its Observer for post-construction mutation,
+so the hook must be wired before `rag.New(opts)`.
+
+`rag.generate.tokens` is independent from the existing `rag.tokens` counter
+and from any token attribution emitted by `otelmodel` on the underlying
+`llm.ChatModel`. Combining `rag.generate.tokens` and `rag.tokens` in a single
+query would double-count the answer leg — filter by attribute set instead.
+Only `prompt` and `completion` kinds are emitted (no `total`) for the same
+reason.
+
 ## Exporter defaults
 
 `DefaultExporterConfig()` currently defaults to OTLP HTTP on `http://localhost:4318`:
