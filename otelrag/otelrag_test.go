@@ -393,6 +393,52 @@ func TestObserver_OnGenerateUsagePreservesEstimatedFlag(t *testing.T) {
 	}
 }
 
+func TestMakeOnGenerateUsageHook_RecordsTokens(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+
+	hook := otelrag.MakeOnGenerateUsageHook(mp)
+	if hook == nil {
+		t.Fatalf("MakeOnGenerateUsageHook returned nil")
+	}
+	hook(context.Background(), "planner", obs.TokenUsage{
+		PromptTokens:     42,
+		CompletionTokens: 8,
+		Estimated:        true,
+	})
+
+	dps := collectDataPoints(t, reader, otelrag.MetricGenerateTokens)
+	if len(dps) != 2 {
+		t.Fatalf("got %d data points, want 2; dps=%+v", len(dps), dps)
+	}
+	if dp, ok := findDataPoint(dps, map[string]string{
+		otelrag.AttrStage:     "planner",
+		otelrag.AttrTokenKind: "prompt",
+		otelrag.AttrEstimated: "true",
+	}); !ok || dp.Value != 42 {
+		t.Fatalf("prompt data point missing or wrong value; got %+v ok=%v", dp, ok)
+	}
+	if dp, ok := findDataPoint(dps, map[string]string{
+		otelrag.AttrStage:     "planner",
+		otelrag.AttrTokenKind: "completion",
+		otelrag.AttrEstimated: "true",
+	}); !ok || dp.Value != 8 {
+		t.Fatalf("completion data point missing or wrong value; got %+v ok=%v", dp, ok)
+	}
+}
+
+func TestMakeOnGenerateUsageHook_NilMeterProviderIsNoop(t *testing.T) {
+	hook := otelrag.MakeOnGenerateUsageHook(nil)
+	if hook == nil {
+		t.Fatalf("MakeOnGenerateUsageHook(nil) returned nil; want a no-op closure")
+	}
+	// Must not panic.
+	hook(context.Background(), "ask", obs.TokenUsage{
+		PromptTokens:     1,
+		CompletionTokens: 1,
+	})
+}
+
 func TestWrap_NoMeterProviderIsNoopSafe(t *testing.T) {
 	sys := rag.New(rag.Options{
 		Model:    fakeModel{},

@@ -235,3 +235,26 @@ func Observer(cfg ...Config) rag.Observer {
 		},
 	}
 }
+
+// MakeOnGenerateUsageHook returns a thread-safe rag.Observer.OnGenerateUsage
+// hook that records to the rag.generate.tokens counter on the given
+// MeterProvider. It is the standalone escape hatch for callers who construct
+// rag.Observer manually (e.g. to combine otelrag with their own application
+// hooks) rather than using the Observer(cfg) factory.
+//
+// A nil MeterProvider degrades to a no-op meter, matching Wrap() semantics:
+// the returned hook is always non-nil and never panics. Instrument
+// construction failures collapse to a no-op closure that drops events,
+// preserving the additive-only guarantee.
+//
+// Synchronous OTel SDK instruments (v1.43.0) are concurrent-safe, so the
+// returned hook may be invoked from parallel goroutines (e.g. under v1.2.1
+// ParallelFollowups or v1.4.0 AnswerBenchmark.Parallelism >= 2).
+func MakeOnGenerateUsageHook(mp apimetric.MeterProvider) func(ctx context.Context, stage string, usage obs.TokenUsage) {
+	cfg := Config{MeterProvider: mp}
+	instr := newInstruments(cfg.meterProvider().Meter(instrumentationName))
+	if instr.generateTokens == nil {
+		return func(context.Context, string, obs.TokenUsage) {}
+	}
+	return instr.recordStageTokens
+}
