@@ -6,8 +6,8 @@ github.com/costa92/llm-agent v0.5.1 h1:nhwkBagqS/2XbatFwejnB9Dv7cH9z781eYsojiqkm
 github.com/costa92/llm-agent v0.5.1/go.mod h1:Qv5h5EoXXyGJ08Ih7LU5fD7qFP3dS44xS9jE3xRS6lw=
 github.com/costa92/llm-agent-flow v0.0.7 h1:WpQgZJslpIp5Pucg2fYs4pNcL5qdtjxwbY+76ctm98U=
 github.com/costa92/llm-agent-flow v0.0.7/go.mod h1:nFMoJTHQ49PqZqt7oZE1s+aP4TtPNwzPzw8nKAWaC9Y=
-github.com/costa92/llm-agent-rag v1.5.0 h1:NqQfhU2vZ4o91+87/LTmKjTcekuc9aO+d2p0G1HoFUQ=
-github.com/costa92/llm-agent-rag v1.5.0/go.mod h1:lAJAZgSU/87p0cVD16cgN7qga/Z5CqwFNc+J6vLrejE=
+github.com/costa92/llm-agent-rag v1.6.0 h1:XyBUDjJm9tRXMplk6nipU04dEGvLIQetvmYSt7OXVvs=
+github.com/costa92/llm-agent-rag v1.6.0/go.mod h1:lAJAZgSU/87p0cVD16cgN7qga/Z5CqwFNc+J6vLrejE=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/go-logr/logr v1.2.2/go.mod h1:jdQByPbusPIv2/zmleS9BjJVeZ6kBagPoEUsqbVz/1A=
