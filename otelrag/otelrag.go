@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/costa92/llm-agent-rag/ingest"
+	"github.com/costa92/llm-agent-rag/obs"
 	"github.com/costa92/llm-agent-rag/rag"
 	ragretrieve "github.com/costa92/llm-agent-rag/retrieve"
 	"github.com/costa92/llm-agent-rag/store"
@@ -189,6 +190,7 @@ func Observer(cfg ...Config) rag.Observer {
 	tp := c.tracerProvider()
 	tracer := tp.Tracer(instrumentationName)
 	_ = tracer // reserved for future per-event tracer use
+	instr := newInstruments(c.meterProvider().Meter(instrumentationName))
 	return rag.Observer{
 		OnImport: func(ctx context.Context, t rag.ImportTrace) {
 			span := trace.SpanFromContext(ctx)
@@ -227,6 +229,9 @@ func Observer(cfg ...Config) rag.Observer {
 				)
 			}
 			span.AddEvent(OperationAsk, trace.WithAttributes(attrs...))
+		},
+		OnGenerateUsage: func(ctx context.Context, stage string, usage obs.TokenUsage) {
+			instr.recordStageTokens(ctx, stage, usage)
 		},
 	}
 }
