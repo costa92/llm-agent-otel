@@ -2,6 +2,7 @@ package otelrag_test
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/costa92/llm-agent-otel/otelrag"
@@ -437,6 +438,55 @@ func TestMakeOnGenerateUsageHook_NilMeterProviderIsNoop(t *testing.T) {
 		PromptTokens:     1,
 		CompletionTokens: 1,
 	})
+}
+
+func TestObserver_OnGenerateUsageConcurrentSafe(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	observer := otelrag.Observer(otelrag.Config{MeterProvider: mp})
+	if observer.OnGenerateUsage == nil {
+		t.Fatalf("Observer().OnGenerateUsage is nil")
+	}
+
+	const goroutines = 50
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	ctx := context.Background()
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			defer wg.Done()
+			observer.OnGenerateUsage(ctx, "ask", obs.TokenUsage{
+				PromptTokens:     1,
+				CompletionTokens: 1,
+			})
+		}()
+	}
+	wg.Wait()
+
+	dps := collectDataPoints(t, reader, otelrag.MetricGenerateTokens)
+	if len(dps) != 2 {
+		t.Fatalf("got %d data points, want 2 (one per kind); dps=%+v", len(dps), dps)
+	}
+	prompt, ok := findDataPoint(dps, map[string]string{
+		otelrag.AttrStage:     "ask",
+		otelrag.AttrTokenKind: "prompt",
+	})
+	if !ok {
+		t.Fatalf("prompt data point not found in %+v", dps)
+	}
+	if prompt.Value != int64(goroutines) {
+		t.Fatalf("prompt cumulative value = %d, want %d", prompt.Value, goroutines)
+	}
+	completion, ok := findDataPoint(dps, map[string]string{
+		otelrag.AttrStage:     "ask",
+		otelrag.AttrTokenKind: "completion",
+	})
+	if !ok {
+		t.Fatalf("completion data point not found in %+v", dps)
+	}
+	if completion.Value != int64(goroutines) {
+		t.Fatalf("completion cumulative value = %d, want %d", completion.Value, goroutines)
+	}
 }
 
 func TestWrap_NoMeterProviderIsNoopSafe(t *testing.T) {
