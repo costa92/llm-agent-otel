@@ -2,7 +2,7 @@ module github.com/costa92/llm-agent-otel
 
 go 1.26.0
 
-require github.com/costa92/llm-agent v0.5.1
+require github.com/costa92/llm-agent v0.7.0
 
 require (
 	github.com/costa92/llm-agent-rag v1.9.0
