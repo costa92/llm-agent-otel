@@ -11,6 +11,7 @@ import (
 )
 
 func TestExporterConfig_DefaultsToOTLPHTTP4318(t *testing.T) {
+	clearOTELEnv(t)
 	cfg := DefaultExporterConfig()
 	if cfg.Protocol != ProtocolHTTP {
 		t.Fatalf("Protocol = %q, want %q", cfg.Protocol, ProtocolHTTP)
@@ -21,6 +22,7 @@ func TestExporterConfig_DefaultsToOTLPHTTP4318(t *testing.T) {
 }
 
 func TestExporterConfig_AllowsGRPCOptIn(t *testing.T) {
+	clearOTELEnv(t)
 	cfg := DefaultExporterConfig()
 	cfg.Protocol = ProtocolGRPC
 	cfg.Endpoint = "localhost:4317"

@@ -15,7 +15,7 @@ This repo now ships the Phase 5 observability surface:
 ## Install
 
 ```bash
-go get github.com/costa92/llm-agent-otel@v0.1.0   # available after Phase 5
+go get github.com/costa92/llm-agent-otel@latest
 ```
 
 ## Quick start
@@ -195,9 +195,9 @@ The demo program source is at [compose/demo/main.go](./compose/demo/main.go).
 
 ## Cross-repo iteration pattern (INFRA-06)
 
-This repo lives in a 4-repo umbrella alongside [`llm-agent`](https://github.com/costa92/llm-agent), [`llm-agent-providers`](https://github.com/costa92/llm-agent-providers), and [`llm-agent-customer-support`](https://github.com/costa92/llm-agent-customer-support). For local development across repos:
+This repo is part of the broader `llm-agent-ecosystem`. The local helper script in this repo targets a common 4-repo development subset alongside [`llm-agent`](https://github.com/costa92/llm-agent), [`llm-agent-providers`](https://github.com/costa92/llm-agent-providers), and [`llm-agent-customer-support`](https://github.com/costa92/llm-agent-customer-support). For local development across that subset:
 
-**Recommended:** clone all 4 repos as siblings, run `./scripts/workspace.sh` from any of them, then develop with a `go.work` file. The workspace file is `.gitignore`d in every repo:
+**Recommended for this subset:** clone all 4 repos as siblings, run `./scripts/workspace.sh` from any of them, then develop with a `go.work` file. The workspace file is `.gitignore`d in every repo:
 
 ```bash
 cd <parent>
@@ -220,9 +220,11 @@ The `release-precheck` CI workflow rejects any non-empty `replace` block on bran
 
 ## Versioning
 
-This repo is already code-compatible with the `llm-agent v0.4` core surface.
-Its local release-prep state now targets `github.com/costa92/llm-agent v0.4.0`.
-The only remaining Phase 7 follow-up is publishing the final coordinated tags.
+This repo tracks the `llm-agent` core surface through coordinated bump waves.
+Check `go.mod` for the current exact sibling pins; in the current code
+snapshot that includes `github.com/costa92/llm-agent v0.5.1`,
+`github.com/costa92/llm-agent-rag v1.9.0`, and
+`github.com/costa92/llm-agent-flow v0.0.7`.
 
 ## PR automation
 
