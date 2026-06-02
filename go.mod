@@ -16,13 +16,9 @@ require (
 )
 
 require (
-	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
-	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
-)
-
-require (
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/costa92/llm-agent-contract v0.0.0
 	github.com/costa92/llm-agent-flow v0.0.7
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
@@ -38,4 +34,11 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260401024825-9d38bb4040a9 // indirect
 	google.golang.org/grpc v1.80.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
+)
+
+replace (
+	github.com/costa92/llm-agent => ../llm-agent
+	github.com/costa92/llm-agent-contract => ../llm-agent-contract
+	github.com/costa92/llm-agent-flow => ../llm-agent-flow
+	github.com/costa92/llm-agent-rag => ../llm-agent-rag
 )

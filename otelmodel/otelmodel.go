@@ -5,7 +5,7 @@ import (
 	"io"
 
 	otelroot "github.com/costa92/llm-agent-otel"
-	"github.com/costa92/llm-agent/llm"
+	"github.com/costa92/llm-agent-contract/llm"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
