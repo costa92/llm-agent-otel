@@ -2,10 +2,10 @@ module github.com/costa92/llm-agent-otel
 
 go 1.26.0
 
-require github.com/costa92/llm-agent v0.7.0
+require github.com/costa92/llm-agent v0.8.0
 
 require (
-	github.com/costa92/llm-agent-rag v1.9.0
+	github.com/costa92/llm-agent-rag v1.10.0
 	go.opentelemetry.io/otel v1.43.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.40.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.43.0
@@ -18,8 +18,8 @@ require (
 require (
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/costa92/llm-agent-contract v0.0.0
-	github.com/costa92/llm-agent-flow v0.0.7
+	github.com/costa92/llm-agent-contract v0.1.0
+	github.com/costa92/llm-agent-flow v0.2.0
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
@@ -34,11 +34,4 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260401024825-9d38bb4040a9 // indirect
 	google.golang.org/grpc v1.80.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
-)
-
-replace (
-	github.com/costa92/llm-agent => ../llm-agent
-	github.com/costa92/llm-agent-contract => ../llm-agent-contract
-	github.com/costa92/llm-agent-flow => ../llm-agent-flow
-	github.com/costa92/llm-agent-rag => ../llm-agent-rag
 )
