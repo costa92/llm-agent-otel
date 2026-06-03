@@ -10,7 +10,7 @@ import (
 	"github.com/costa92/llm-agent-otel/otelagent"
 	"github.com/costa92/llm-agent-otel/otelmodel"
 	"github.com/costa92/llm-agent-otel/otelslog"
-	"github.com/costa92/llm-agent/llm"
+	"github.com/costa92/llm-agent-contract/llm"
 	"log/slog"
 )
 
