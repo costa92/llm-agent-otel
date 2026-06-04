@@ -1,3 +1,5 @@
+[English](./README.md) | [简体中文](./README.zh-CN.md)
+
 # llm-agent-otel
 
 OpenTelemetry decorator wrappers for [`github.com/costa92/llm-agent`](https://github.com/costa92/llm-agent). Wraps `llm.ChatModel` (and the `agents.Agent` interface) with `gen_ai.*` semconv-aware spans, metrics, and slog bridge — without touching the core repo's stdlib-only invariant.
