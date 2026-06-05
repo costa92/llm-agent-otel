@@ -4,6 +4,8 @@ go 1.26.0
 
 require github.com/costa92/llm-agent v0.9.0
 
+require github.com/costa92/llm-agent-flow/v2 v2.0.0
+
 require (
 	github.com/costa92/llm-agent-rag v1.10.0
 	go.opentelemetry.io/otel v1.43.0
@@ -18,7 +20,7 @@ require (
 require (
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/costa92/llm-agent-contract v0.2.0
+	github.com/costa92/llm-agent-contract v0.5.0
 	github.com/costa92/llm-agent-flow v0.2.0
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
